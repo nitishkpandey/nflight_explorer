@@ -2,7 +2,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 
-# Base directory of the project
+
 BASE_DIR = Path(__file__).resolve().parent
 
 # Load environment variables from .env
