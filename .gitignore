@@ -1,0 +1,24 @@
+# Ignore virtual environments
+.venv/
+venv/
+env/
+
+# Ignore Python bytecode
+__pycache__/
+*.pyc
+
+# Ignore environment files / secrets
+.env
+*.env
+
+# Ignore Streamlit cache & logs
+.streamlit/
+
+# Ignore macOS files
+.DS_Store
+
+# Ignore VS Code settings
+.vscode/
+
+# Ignore temporary files
+*.log
