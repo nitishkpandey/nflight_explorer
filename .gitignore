@@ -22,3 +22,4 @@ __pycache__/
 
 # Ignore temporary files
 *.log
+data/*.db
