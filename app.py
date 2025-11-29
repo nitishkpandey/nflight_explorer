@@ -10,6 +10,8 @@ from datetime import date
 import streamlit as st
 
 from flight_api_client import AirLabsClient, FlightSearchParams, flights_to_dataframe
+from db import log_search_and_flights, get_recent_searches
+
 
 
 # ---------------------------- Page & Style ---------------------------- #
@@ -318,15 +320,18 @@ def render_results(df):
 
 # ---------------------------- Main ---------------------------- #
 
-
 def main() -> None:
     configure_page()
     render_header()
 
+    # 1) Get the current search values from the search card
     search_state = build_search_card()
 
     df = None
+
+    # 2) Only run when the button is clicked
     if search_state["search_clicked"]:
+        # Require at least one of: flight code, dep, arr
         if not (
             search_state["flight_code"]
             or search_state["dep_iata"]
@@ -338,12 +343,31 @@ def main() -> None:
         else:
             with st.spinner("Fetching flights from live flights API..."):
                 try:
+                    # 3) Call the live flights API
                     df = fetch_flights_cached(
                         flight_code=search_state["flight_code"],
                         dep_iata=search_state["dep_iata"],
                         arr_iata=search_state["arr_iata"],
                         limit=search_state["limit"],
                     )
+
+                    # 4) Save this search + results into SQLite
+                    if df is not None:
+                        try:
+                            log_search_and_flights(
+                                dep_iata=search_state["dep_iata"],
+                                arr_iata=search_state["arr_iata"],
+                                flight_code=search_state["flight_code"],
+                                limit_value=search_state["limit"],
+                                flights_df=df,
+                            )
+                        except Exception as db_exc:
+                            # Do not break the app if logging fails
+                            st.warning(
+                                "Search worked, but failed to save to history database."
+                            )
+                            st.exception(db_exc)
+
                 except Exception as exc:
                     st.error(
                         "Failed to fetch data from the flights API. "
@@ -351,9 +375,18 @@ def main() -> None:
                     )
                     st.exception(exc)
 
+    # 5) Show metrics + results for the current search
     render_metrics(df)
     render_results(df)
 
-
-if __name__ == "__main__":
-    main()
+    # 6) Show recent searches from SQLite (Phase 2 history)
+    with st.expander("Recent searches (from SQLite history)", expanded=False):
+        try:
+            history_df = get_recent_searches(limit=10)
+            if history_df.empty:
+                st.info("No searches stored yet.")
+            else:
+                st.dataframe(history_df, use_container_width=True)
+        except Exception as exc:
+            st.warning("Failed to load recent searches from the database.")
+            st.exception(exc)
