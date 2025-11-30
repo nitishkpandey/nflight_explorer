@@ -1,8 +1,17 @@
+"""
+db.py
+
+SQLite storage for Nitish's Flight Explorer:
+- searches table: each search the user performs
+- flights table: snapshot of flights returned for that search
+- analytics helpers: aggregate stats for routes, airlines, searches, and alt/speed
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 import sqlite3
 import pandas as pd
@@ -174,6 +183,107 @@ def get_recent_searches(limit: int = 10) -> pd.DataFrame:
         """,
         conn,
         params=(limit,),
+    )
+    conn.close()
+    return df
+
+
+# ---------------------- Analytics helpers (Phase 3) ---------------------- #
+
+
+def get_route_stats(limit: int = 10) -> pd.DataFrame:
+    """
+    Return top routes by number of flights observed.
+    One row per (dep_iata, arr_iata).
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT
+            dep_iata,
+            arr_iata,
+            COUNT(*) AS flights_count,
+            COUNT(DISTINCT airline_iata) AS airlines_count
+        FROM flights
+        WHERE dep_iata IS NOT NULL
+          AND arr_iata IS NOT NULL
+        GROUP BY dep_iata, arr_iata
+        ORDER BY flights_count DESC
+        LIMIT ?
+        """,
+        conn,
+        params=(limit,),
+    )
+    conn.close()
+
+    if not df.empty:
+        df["route"] = df["dep_iata"].fillna("?") + " → " + df["arr_iata"].fillna("?")
+    return df
+
+
+def get_airline_stats(limit: int = 10) -> pd.DataFrame:
+    """
+    Return top airlines by number of flights seen in our data.
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT
+            airline_iata,
+            airline_icao,
+            COUNT(*) AS flights_count,
+            COUNT(DISTINCT dep_iata || '-' || arr_iata) AS routes_count
+        FROM flights
+        WHERE airline_iata IS NOT NULL
+        GROUP BY airline_iata, airline_icao
+        ORDER BY flights_count DESC
+        LIMIT ?
+        """,
+        conn,
+        params=(limit,),
+    )
+    conn.close()
+    return df
+
+
+def get_searches_by_day() -> pd.DataFrame:
+    """
+    Aggregate searches per day.
+    searched_at is ISO string, so we can take first 10 chars as date.
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT
+            substr(searched_at, 1, 10) AS date,
+            COUNT(*) AS search_count,
+            SUM(results_count) AS total_results
+        FROM searches
+        GROUP BY date
+        ORDER BY date
+        """,
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_altitude_speed_distribution() -> pd.DataFrame:
+    """
+    Return alt + speed columns for flights where both are present.
+    Useful for scatter/histograms.
+    """
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """
+        SELECT
+            alt,
+            speed
+        FROM flights
+        WHERE alt IS NOT NULL
+          AND speed IS NOT NULL
+        """,
+        conn,
     )
     conn.close()
     return df
