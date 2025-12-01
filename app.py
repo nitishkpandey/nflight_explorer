@@ -5,6 +5,8 @@ N's Flight Explorer - Live Flights UI + SQLite history
 """
 
 from datetime import date
+from popular_routes import load_search_history, compute_popular_routes
+
 
 import streamlit as st
 
@@ -417,6 +419,22 @@ def render_analytics_section() -> None:
     except Exception as exc:
         st.warning("Failed to load data for cluster analytics.")
         st.exception(exc)
+
+        st.markdown("---")
+    st.markdown("#### 🔮 Popular Route Prediction (ML Phase 4B)")
+
+    try:
+        search_df = load_search_history()
+        popular_df = compute_popular_routes(search_df, top_k=5)
+
+        if popular_df.empty:
+            st.info("Not enough history to predict popular routes yet.")
+        else:
+            st.dataframe(popular_df, use_container_width=True)
+    except Exception as exc:
+        st.warning("Failed to compute popular routes.")
+        st.exception(exc)
+
 
 # ---------------------------- Main ---------------------------- #
 def main() -> None:
