@@ -6,7 +6,10 @@ N's Flight Explorer - Live Flights UI + SQLite history
 
 from datetime import date
 from popular_routes import load_search_history, compute_popular_routes
+from delay_model import predict_delay_probability_for_flight
 
+import pandas as pd
+import numpy as np
 
 import streamlit as st
 
@@ -290,9 +293,11 @@ def render_results(df):
 
     col_table, col_details = st.columns([1.8, 1.2])
 
+    # Left side: full table
     with col_table:
         st.dataframe(df, use_container_width=True, height=420)
 
+    # Right side: details for a selected flight
     with col_details:
         st.markdown('<div class="section-title">Flight details</div>', unsafe_allow_html=True)
 
@@ -303,10 +308,21 @@ def render_results(df):
             selected_index = st.selectbox(
                 "Select a flight:",
                 options=index_options,
-                format_func=lambda idx: f"{df.loc[idx].get('flight_iata') or df.loc[idx].get('flight_number') or 'Flight'}"
-                                        f" | {df.loc[idx].get('dep_iata', '')} → {df.loc[idx].get('arr_iata', '')}",
+                format_func=lambda idx: (
+                    f"{df.loc[idx].get('flight_iata') or df.loc[idx].get('flight_number') or 'Flight'}"
+                    f" | {df.loc[idx].get('dep_iata', '')} → {df.loc[idx].get('arr_iata', '')}"
+                ),
             )
             row = df.loc[selected_index]
+
+            # ---- Delay info (Phase 4C) ----
+            delay_proba = row.get("delay_proba", None)
+            delay_risk = row.get("delay_risk", "Unknown")
+
+            if delay_proba is not None and not pd.isna(delay_proba):
+                delay_line = f"**Delay risk:** {delay_risk} ({delay_proba:.0%})  "
+            else:
+                delay_line = "**Delay risk:** Unknown  "
 
             st.markdown(
                 f"""
@@ -315,6 +331,7 @@ def render_results(df):
                 **Route:** {row.get('dep_iata', '???')} → {row.get('arr_iata', '???')}  
                 **Status:** {row.get('status', 'N/A')}  
                 **Updated:** {row.get('updated', 'N/A')}  
+                {delay_line}
                 """,
             )
 
@@ -322,6 +339,7 @@ def render_results(df):
                 st.json(row.to_dict())
 
     st.markdown("</div>", unsafe_allow_html=True)
+
 
 def render_analytics_section() -> None:
     """
@@ -477,6 +495,28 @@ def main() -> None:
                     except Exception as ml_exc:
                         st.warning("Failed to cluster flights (ML step).")
                         st.exception(ml_exc)
+                                # ---- Phase 4C: delay prediction for each flight ----
+                                # ---- Phase 4C: delay prediction for each flight ----
+                if df is not None and not df.empty:
+                    try:
+                        probs = []
+                        for _, row in df.iterrows():
+                            proba = predict_delay_probability_for_flight(row)
+                            probs.append(proba if proba is not None else np.nan)
+                        df["delay_proba"] = probs
+
+                        df["delay_risk"] = df["delay_proba"].apply(
+                            lambda p: (
+                                "Unknown" if pd.isna(p)
+                                else "High" if p >= 0.7
+                                else "Medium" if p >= 0.4
+                                else "Low"
+                            )
+                        )
+                    except Exception as delay_exc:
+                        st.warning("Failed to compute delay predictions (ML step).")
+                        st.exception(delay_exc)
+
 
                 # Log to SQLite (even if it's global snapshot)
                 if df is not None:
